@@ -3,9 +3,13 @@ import SwiftUI
 struct ShareDetailView: View {
     let share: SMBShare
     let status: ShareStatus
+    let isRemountPaused: Bool
     var onConnect: () -> Void
     var onDisconnect: () -> Void
+    var onToggleRemountPause: () -> Void
+    var onDuplicate: () -> Void
     var onEdit: () -> Void
+    var onGoHome: () -> Void
     var onDelete: () -> Void
 
     @State private var showDeleteConfirmation = false
@@ -50,6 +54,9 @@ struct ShareDetailView: View {
             }
 
             Spacer()
+
+            Button("Home") { onGoHome() }
+                .buttonStyle(.bordered)
         }
     }
 
@@ -91,6 +98,11 @@ struct ShareDetailView: View {
                         .foregroundStyle(.secondary)
                     Text(share.autoConnect ? "Enabled" : "Disabled")
                 }
+                GridRow {
+                    Text("Remount")
+                        .foregroundStyle(.secondary)
+                    Text(isRemountPaused ? "Temporarily Paused" : "Active")
+                }
                 if let lastConnected = share.lastConnected {
                     GridRow {
                         Text("Last Connected")
@@ -105,24 +117,40 @@ struct ShareDetailView: View {
 
     @ViewBuilder
     private var actions: some View {
-        HStack(spacing: 12) {
-            if status.isConnected {
-                Button("Disconnect") { onDisconnect() }
-                    .buttonStyle(.bordered)
-            } else {
-                Button("Connect") { onConnect() }
-                    .buttonStyle(.borderedProminent)
-            }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                if status.isConnected {
+                    Button("Disconnect") { onDisconnect() }
+                        .buttonStyle(.bordered)
+                } else {
+                    Button("Connect") { onConnect() }
+                        .buttonStyle(.borderedProminent)
+                }
 
-            Button("Edit...") { onEdit() }
+                Button(isRemountPaused ? "Resume Remount" : "Pause Remount") {
+                    onToggleRemountPause()
+                }
                 .buttonStyle(.bordered)
+                .disabled(!share.autoConnect && !isRemountPaused)
 
-            Spacer()
-
-            Button("Delete", role: .destructive) {
-                showDeleteConfirmation = true
+                Button("Duplicate...") { onDuplicate() }
+                    .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
+
+            HStack(spacing: 12) {
+                Button("Edit...") { onEdit() }
+                    .buttonStyle(.bordered)
+
+                Button("Go Home") { onGoHome() }
+                    .buttonStyle(.bordered)
+
+                Spacer()
+
+                Button("Delete", role: .destructive) {
+                    showDeleteConfirmation = true
+                }
+                .buttonStyle(.bordered)
+            }
         }
     }
 
@@ -130,6 +158,7 @@ struct ShareDetailView: View {
         switch status {
         case .connected: .green
         case .disconnected: .secondary
+        case .paused: .yellow
         case .connecting: .orange
         case .error: .red
         }

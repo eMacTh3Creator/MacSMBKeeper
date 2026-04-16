@@ -65,11 +65,13 @@ struct ShareEditorView: View {
                 autoConnect = share.autoConnect
                 password = KeychainService.loadPassword(for: share.id) ?? ""
             } else if let prefill {
+                name = prefill.name
                 host = prefill.host
                 shareName = prefill.shareName
-                name = prefill.shareName
                 mountPoint = prefill.mountPoint
                 username = prefill.username
+                password = prefill.password
+                autoConnect = prefill.autoConnect
             }
         }
     }
@@ -103,8 +105,41 @@ struct ShareEditorView: View {
 
 struct SharePrefill: Identifiable {
     let id = UUID()
+    var name: String = ""
     var host: String
     var shareName: String
     var mountPoint: String = "/Volumes"
     var username: String = ""
+    var password: String = ""
+    var autoConnect: Bool = true
+
+    init(
+        name: String = "",
+        host: String,
+        shareName: String,
+        mountPoint: String = "/Volumes",
+        username: String = "",
+        password: String = "",
+        autoConnect: Bool = true
+    ) {
+        self.name = name
+        self.host = host
+        self.shareName = shareName
+        self.mountPoint = mountPoint
+        self.username = username
+        self.password = password
+        self.autoConnect = autoConnect
+    }
+
+    init(share: SMBShare, password: String = "") {
+        self.init(
+            name: share.name,
+            host: share.host,
+            shareName: share.shareName,
+            mountPoint: share.mountPoint,
+            username: share.username,
+            password: password,
+            autoConnect: share.autoConnect
+        )
+    }
 }

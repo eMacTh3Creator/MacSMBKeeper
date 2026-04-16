@@ -11,7 +11,7 @@ struct MainWindowView: View {
     @State private var showingHelp = false
     @State private var showingBulkDeleteConfirmation = false
     @State private var dragOver = false
-    @State private var dropPrefill: SharePrefill?
+    @State private var editorPrefill: SharePrefill?
 
     var body: some View {
         NavigationSplitView {
@@ -24,9 +24,9 @@ struct MainWindowView: View {
                 showingAddSheet = false
             }
         }
-        .sheet(item: $dropPrefill) { prefill in
+        .sheet(item: $editorPrefill) { prefill in
             ShareEditorView(shareStore: shareStore, prefill: prefill) {
-                dropPrefill = nil
+                editorPrefill = nil
             }
         }
         .sheet(item: $editingShare) { share in
@@ -81,14 +81,36 @@ struct MainWindowView: View {
 
     @ViewBuilder
     private var sidebar: some View {
-        List(shareStore.shares, selection: $selection) { share in
-            ShareListRow(share: share, status: monitor.status(for: share.id))
-                .tag(share.id)
-                .contextMenu {
-                    shareContextMenu(for: share)
+        VStack(spacing: 10) {
+            SidebarHomeButton(isSelected: selection.isEmpty) {
+                selection.removeAll()
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+
+            List(shareStore.shares, selection: $selection) { share in
+                ShareListRow(share: share, status: monitor.status(for: share.id))
+                    .tag(share.id)
+                    .contextMenu {
+                        shareContextMenu(for: share)
+                    }
+            }
+            .listStyle(.sidebar)
+            .overlay {
+                if shareStore.shares.isEmpty {
+                    ContentUnavailableView {
+                        Label("No SMB Shares", systemImage: "externaldrive.connected.to.line.below")
+                    } description: {
+                        Text("Add an SMB share to keep connected.\nYou can also drag and drop smb:// URLs here.")
+                    } actions: {
+                        Button("Add Share") {
+                            showingAddSheet = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 }
+            }
         }
-        .listStyle(.sidebar)
         .frame(minWidth: 220)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -114,20 +136,13 @@ struct MainWindowView: View {
                     Image(systemName: "plus")
                 }
                 .help("Add SMB Share")
-            }
-        }
-        .overlay {
-            if shareStore.shares.isEmpty {
-                ContentUnavailableView {
-                    Label("No SMB Shares", systemImage: "externaldrive.connected.to.line.below")
-                } description: {
-                    Text("Add an SMB share to keep connected.\nYou can also drag and drop smb:// URLs here.")
-                } actions: {
-                    Button("Add Share") {
-                        showingAddSheet = true
-                    }
-                    .buttonStyle(.borderedProminent)
+
+                Button {
+                    selection.removeAll()
+                } label: {
+                    Image(systemName: "house")
                 }
+                .help("Go Home")
             }
         }
     }
@@ -143,13 +158,15 @@ struct MainWindowView: View {
             ShareDetailView(
                 share: share,
                 status: monitor.status(for: share.id),
+                isRemountPaused: monitor.isRemountPaused(for: share.id),
                 onConnect: { Task { await monitor.connect(share: share) } },
                 onDisconnect: { monitor.disconnect(share: share) },
+                onToggleRemountPause: { monitor.toggleRemount(for: share) },
+                onDuplicate: { duplicate(share: share) },
                 onEdit: { editingShare = share },
+                onGoHome: { selection.removeAll() },
                 onDelete: {
-                    monitor.disconnect(share: share)
-                    shareStore.remove(share)
-                    selection.remove(share.id)
+                    delete(share: share)
                 }
             )
         } else {
@@ -269,11 +286,24 @@ struct MainWindowView: View {
     private func deleteSelected() {
         for id in selection {
             if let share = shareStore.shares.first(where: { $0.id == id }) {
-                monitor.disconnect(share: share)
-                shareStore.remove(share)
+                delete(share: share)
             }
         }
         selection.removeAll()
+    }
+
+    private func delete(share: SMBShare) {
+        monitor.disconnect(share: share)
+        monitor.forgetShare(id: share.id)
+        shareStore.remove(share)
+        selection.remove(share.id)
+    }
+
+    private func duplicate(share: SMBShare) {
+        editorPrefill = SharePrefill(
+            share: share,
+            password: KeychainService.loadPassword(for: share.id) ?? ""
+        )
     }
 
     private func toggleAutoConnectForSelected() {
@@ -301,11 +331,14 @@ struct MainWindowView: View {
             Button("Connect") { Task { await monitor.connect(share: share) } }
         }
         Divider()
+        Button(monitor.isRemountPaused(for: share.id) ? "Resume Remount" : "Pause Remount") {
+            monitor.toggleRemount(for: share)
+        }
+        .disabled(!share.autoConnect && !monitor.isRemountPaused(for: share.id))
+        Button("Duplicate...") { duplicate(share: share) }
         Button("Edit...") { editingShare = share }
         Button("Delete", role: .destructive) {
-            monitor.disconnect(share: share)
-            shareStore.remove(share)
-            selection.remove(share.id)
+            delete(share: share)
         }
     }
 
@@ -350,11 +383,37 @@ struct MainWindowView: View {
         // Extract username if present in the URL (smb://user@host/share)
         let username = url.user(percentEncoded: false) ?? ""
 
-        dropPrefill = SharePrefill(
+        editorPrefill = SharePrefill(
+            name: shareName,
             host: host,
             shareName: shareName,
             username: username
         )
+    }
+}
+
+struct SidebarHomeButton: View {
+    let isSelected: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: "house.fill")
+                    .frame(width: 14)
+                Text("Home")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
     }
 }
 
@@ -383,6 +442,7 @@ struct ShareListRow: View {
         switch status {
         case .connected: .green
         case .disconnected: .secondary
+        case .paused: .yellow
         case .connecting: .orange
         case .error: .red
         }

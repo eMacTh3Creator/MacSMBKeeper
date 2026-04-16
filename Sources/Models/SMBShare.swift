@@ -46,6 +46,7 @@ struct SMBShare: Identifiable, Codable, Hashable, Sendable {
 enum ShareStatus: Sendable {
     case connected
     case disconnected
+    case paused
     case connecting
     case error(String)
 
@@ -53,6 +54,7 @@ enum ShareStatus: Sendable {
         switch self {
         case .connected: "Connected"
         case .disconnected: "Disconnected"
+        case .paused: "Remount Paused"
         case .connecting: "Connecting..."
         case .error(let msg): "Error: \(msg)"
         }

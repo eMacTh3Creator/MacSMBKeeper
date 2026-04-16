@@ -89,6 +89,7 @@ struct ShareMenuRow: View {
         switch status {
         case .connected: "circle.fill"
         case .disconnected: "circle"
+        case .paused: "pause.circle.fill"
         case .connecting: "circle.dotted"
         case .error: "exclamationmark.circle.fill"
         }
@@ -98,6 +99,7 @@ struct ShareMenuRow: View {
         switch status {
         case .connected: .green
         case .disconnected: .secondary
+        case .paused: .yellow
         case .connecting: .orange
         case .error: .red
         }

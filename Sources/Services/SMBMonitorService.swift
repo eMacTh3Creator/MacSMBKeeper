@@ -5,6 +5,7 @@ import os
 @MainActor
 final class SMBMonitorService: ObservableObject {
     @Published private(set) var statuses: [UUID: ShareStatus] = [:]
+    @Published private(set) var pausedShareIDs: Set<UUID> = []
 
     private var monitorTask: Task<Void, Never>?
     private let checkInterval: TimeInterval = 30
@@ -39,6 +40,8 @@ final class SMBMonitorService: ObservableObject {
                 statuses[share.id] = .connected
             } else if case .connecting = currentStatus {
                 // Don't override connecting status
+            } else if pausedShareIDs.contains(share.id) {
+                statuses[share.id] = .paused
             } else {
                 statuses[share.id] = .disconnected
 
@@ -72,7 +75,7 @@ final class SMBMonitorService: ObservableObject {
     func disconnect(share: SMBShare) {
         do {
             try SMBMountService.unmount(share: share)
-            statuses[share.id] = .disconnected
+            statuses[share.id] = pausedShareIDs.contains(share.id) ? .paused : .disconnected
             logger.info("Disconnected from \(share.displayAddress)")
         } catch {
             statuses[share.id] = .error(error.localizedDescription)
@@ -94,6 +97,35 @@ final class SMBMonitorService: ObservableObject {
     private func reconnect(share: SMBShare) async {
         logger.info("Auto-reconnecting to \(share.displayAddress)...")
         await connect(share: share)
+    }
+
+    func toggleRemount(for share: SMBShare) {
+        if pausedShareIDs.contains(share.id) {
+            resumeRemount(for: share)
+        } else {
+            pauseRemount(for: share)
+        }
+    }
+
+    func pauseRemount(for share: SMBShare) {
+        pausedShareIDs.insert(share.id)
+        if !SMBMountService.isMounted(share: share) {
+            statuses[share.id] = .paused
+        }
+    }
+
+    func resumeRemount(for share: SMBShare) {
+        pausedShareIDs.remove(share.id)
+        statuses[share.id] = SMBMountService.isMounted(share: share) ? .connected : .disconnected
+    }
+
+    func isRemountPaused(for id: UUID) -> Bool {
+        pausedShareIDs.contains(id)
+    }
+
+    func forgetShare(id: UUID) {
+        pausedShareIDs.remove(id)
+        statuses.removeValue(forKey: id)
     }
 
     func status(for id: UUID) -> ShareStatus {
