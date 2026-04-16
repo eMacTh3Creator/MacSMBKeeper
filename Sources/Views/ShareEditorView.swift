@@ -3,6 +3,7 @@ import SwiftUI
 struct ShareEditorView: View {
     @ObservedObject var shareStore: ShareStore
     var editing: SMBShare?
+    var prefill: SharePrefill?
     var onDismiss: () -> Void
 
     @State private var name: String = ""
@@ -63,6 +64,12 @@ struct ShareEditorView: View {
                 username = share.username
                 autoConnect = share.autoConnect
                 password = KeychainService.loadPassword(for: share.id) ?? ""
+            } else if let prefill {
+                host = prefill.host
+                shareName = prefill.shareName
+                name = prefill.shareName
+                mountPoint = prefill.mountPoint
+                username = prefill.username
             }
         }
     }
@@ -92,4 +99,12 @@ struct ShareEditorView: View {
         }
         onDismiss()
     }
+}
+
+struct SharePrefill: Identifiable {
+    let id = UUID()
+    var host: String
+    var shareName: String
+    var mountPoint: String = "/Volumes"
+    var username: String = ""
 }

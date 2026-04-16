@@ -21,6 +21,19 @@ struct MacSMBKeeperApp: App {
             MainWindowView(shareStore: shareStore, monitor: monitor)
                 .frame(minWidth: 600, minHeight: 400)
                 .environmentObject(settings)
+                .onAppear {
+                    NSApp.setActivationPolicy(.regular)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                .onDisappear {
+                    // Go back to accessory if no windows remain
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        let hasVisibleWindow = NSApp.windows.contains { $0.isVisible && $0.title == "Mac SMB Keeper" }
+                        if !hasVisibleWindow {
+                            NSApp.setActivationPolicy(.accessory)
+                        }
+                    }
+                }
         }
         .defaultSize(width: 700, height: 500)
         .commands {
@@ -41,6 +54,8 @@ struct MacSMBKeeperApp: App {
             .keyboardShortcut("n")
         }
         CommandGroup(after: .newItem) {
+            Divider()
+
             Button("Connect All") {
                 Task { await monitor.connectAll() }
             }

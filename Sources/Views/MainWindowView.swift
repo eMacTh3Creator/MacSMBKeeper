@@ -11,6 +11,7 @@ struct MainWindowView: View {
     @State private var showingHelp = false
     @State private var showingBulkDeleteConfirmation = false
     @State private var dragOver = false
+    @State private var dropPrefill: SharePrefill?
 
     var body: some View {
         NavigationSplitView {
@@ -21,6 +22,11 @@ struct MainWindowView: View {
         .sheet(isPresented: $showingAddSheet) {
             ShareEditorView(shareStore: shareStore) {
                 showingAddSheet = false
+            }
+        }
+        .sheet(item: $dropPrefill) { prefill in
+            ShareEditorView(shareStore: shareStore, prefill: prefill) {
+                dropPrefill = nil
             }
         }
         .sheet(item: $editingShare) { share in
@@ -46,17 +52,27 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showHelp)) { _ in
             showingHelp = true
         }
-        .onDrop(of: [.url, .text], isTargeted: $dragOver) { providers in
+        .onDrop(of: [.url, .text, .fileURL], isTargeted: $dragOver) { providers in
             handleDrop(providers)
         }
         .overlay {
             if dragOver {
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(Color.accentColor, lineWidth: 3)
-                    .background(Color.accentColor.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .padding(4)
-                    .allowsHitTesting(false)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.accentColor.opacity(0.08))
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 3, dash: [8, 4]))
+                    VStack(spacing: 8) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 36))
+                            .foregroundStyle(.tint)
+                        Text("Drop smb:// URL to add share")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(8)
+                .allowsHitTesting(false)
             }
         }
     }
@@ -298,22 +314,24 @@ struct MainWindowView: View {
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         var handled = false
         for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-                provider.loadItem(forTypeIdentifier: UTType.url.identifier, options: nil) { item, _ in
-                    guard let data = item as? Data, let url = URL(dataRepresentation: data, relativeTo: nil),
-                          url.scheme == "smb" else { return }
+            // Try URL first
+            if provider.canLoadObject(ofClass: URL.self) {
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url, url.scheme == "smb" else { return }
                     Task { @MainActor in
-                        addShareFromURL(url)
+                        openEditorForURL(url)
                     }
                 }
                 handled = true
-            } else if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier) {
-                provider.loadItem(forTypeIdentifier: UTType.text.identifier, options: nil) { item, _ in
-                    guard let text = item as? String ?? (item as? Data).flatMap({ String(data: $0, encoding: .utf8) }),
+            }
+            // Fall back to plain text
+            else if provider.canLoadObject(ofClass: String.self) {
+                _ = provider.loadObject(ofClass: String.self) { text, _ in
+                    guard let text,
                           let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
                           url.scheme == "smb" else { return }
                     Task { @MainActor in
-                        addShareFromURL(url)
+                        openEditorForURL(url)
                     }
                 }
                 handled = true
@@ -322,27 +340,21 @@ struct MainWindowView: View {
         return handled
     }
 
-    private func addShareFromURL(_ url: URL) {
-        guard let host = url.host, !host.isEmpty else { return }
-        let shareName: String = {
-            guard let first = url.pathComponents.dropFirst().first else { return "" }
-            return first
-        }()
+    private func openEditorForURL(_ url: URL) {
+        guard let host = url.host(percentEncoded: false), !host.isEmpty else { return }
+
+        let pathComponents = url.pathComponents.filter { $0 != "/" }
+        let shareName = pathComponents.first ?? ""
         guard !shareName.isEmpty else { return }
 
-        // Don't add duplicates
-        if shareStore.shares.contains(where: { $0.host == host && $0.shareName == shareName }) {
-            return
-        }
+        // Extract username if present in the URL (smb://user@host/share)
+        let username = url.user(percentEncoded: false) ?? ""
 
-        let share = SMBShare(
-            name: shareName,
+        dropPrefill = SharePrefill(
             host: host,
             shareName: shareName,
-            mountPoint: "/Volumes",
-            autoConnect: true
+            username: username
         )
-        shareStore.add(share, password: nil)
     }
 }
 
