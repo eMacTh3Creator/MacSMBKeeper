@@ -34,86 +34,97 @@ final class PermissionChecker: ObservableObject {
     // MARK: - Full Disk Access
 
     func checkFullDiskAccess() {
-        // Try to read a protected directory that requires FDA
-        // ~/Library/Mail is a common FDA-gated path
-        let testPaths = [
+        // Attempt to open a file that is ALWAYS TCC-gated by Full Disk Access.
+        // Reading Library/Safari/Bookmarks.plist or TCC.db directly will succeed
+        // only if FDA is granted. If the path doesn't exist, fall back to the
+        // system-wide TCC.db which exists on every Mac.
+
+        let tccGatedPaths: [String] = [
+            NSHomeDirectory() + "/Library/Safari/Bookmarks.plist",
+            NSHomeDirectory() + "/Library/Safari/CloudTabs.db",
+            NSHomeDirectory() + "/Library/Messages/chat.db",
             NSHomeDirectory() + "/Library/Mail",
-            NSHomeDirectory() + "/Library/Safari",
+            NSHomeDirectory() + "/Library/Calendars",
             "/Library/Application Support/com.apple.TCC/TCC.db",
         ]
 
-        for path in testPaths {
-            if FileManager.default.isReadableFile(atPath: path) {
+        let fm = FileManager.default
+
+        // Try to actually open each file that exists. isReadableFile returns
+        // true for paths that pass sandbox but not for TCC-denied files, which
+        // is why we use open() as the definitive test.
+        for path in tccGatedPaths {
+            guard fm.fileExists(atPath: path) else { continue }
+
+            let fd = open(path, O_RDONLY)
+            if fd >= 0 {
+                close(fd)
                 fullDiskAccess = .granted
-                logger.info("Full Disk Access: granted")
+                logger.info("Full Disk Access: granted (verified via \(path))")
                 return
             }
         }
 
-        // If none of the protected paths are readable, FDA is likely not granted
-        // However, the app may work fine without it for SMB operations
-        // Only mark as denied if /Volumes is also not writable
-        let volumesWritable = FileManager.default.isWritableFile(atPath: "/Volumes")
-        if volumesWritable {
-            fullDiskAccess = .granted
-            logger.info("Full Disk Access: /Volumes writable, sufficient for SMB mounting")
-        } else {
-            fullDiskAccess = .denied
-            logger.warning("Full Disk Access: not granted, /Volumes not writable")
-        }
+        // No gated path was readable. FDA likely not granted. Note that
+        // Mac SMB Keeper does not actually require FDA for SMB mounts —
+        // this check is informational.
+        fullDiskAccess = .denied
+        logger.info("Full Disk Access: not granted (optional for SMB mounting)")
     }
 
     // MARK: - Keychain Access
 
     func checkKeychainAccess() {
-        let testAccount = "com.everettjenkins.MacSMBKeeper.permissionCheck"
-        let testData = "test".data(using: .utf8)!
-
-        // Try to write a test item
-        let addQuery: [String: Any] = [
+        // Read-only query for a NON-EXISTENT item. This never prompts the user
+        // because nothing needs to be unlocked or created. We look at the
+        // return code:
+        //   errSecItemNotFound -> Keychain API is reachable, access OK
+        //   errSecInteractionNotAllowed / errSecAuthFailed -> access denied
+        let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "MacSMBKeeper-PermCheck",
-            kSecAttrAccount as String: testAccount,
-            kSecValueData as String: testData,
+            kSecAttrService as String: "MacSMBKeeper-ProbeNonExistent-\(UUID().uuidString)",
+            kSecAttrAccount as String: "probe",
+            kSecReturnAttributes as String: false,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
         ]
 
-        // Clean up any previous test item
-        SecItemDelete(addQuery as CFDictionary)
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
 
-        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-
-        if addStatus == errSecSuccess {
-            // Clean up
-            SecItemDelete(addQuery as CFDictionary)
+        switch status {
+        case errSecItemNotFound, errSecSuccess:
             keychainAccess = .granted
             logger.info("Keychain access: granted")
-        } else if addStatus == errSecInteractionNotAllowed {
+        case errSecInteractionNotAllowed, errSecAuthFailed, errSecUserCanceled:
             keychainAccess = .denied
-            logger.warning("Keychain access: interaction not allowed (status \(addStatus))")
-        } else if addStatus == errSecAuthFailed {
-            keychainAccess = .denied
-            logger.warning("Keychain access: auth failed (status \(addStatus))")
-        } else {
-            // Other errors may still be OK (e.g., duplicate item means we have access)
-            keychainAccess = addStatus == errSecDuplicateItem ? .granted : .denied
-            logger.info("Keychain access check status: \(addStatus)")
+            logger.warning("Keychain access: denied (status \(status))")
+        default:
+            // Any other status (e.g., errSecMissingEntitlement) we treat as
+            // accessible — these are errors that don't indicate the user
+            // blocked us.
+            keychainAccess = .granted
+            logger.info("Keychain access: reachable (status \(status))")
         }
     }
 
     // MARK: - Network Access
 
     func checkNetworkAccess() {
-        // Check if we can create a socket connection (basic network test)
-        // The local network permission prompt triggers on first network activity
+        // A successful HTTPS request to any public host confirms basic outbound
+        // network works. Local-network (Bonjour/mDNS) permission is separate;
+        // it's prompted automatically on first use.
         Task {
             do {
                 let url = URL(string: "https://api.github.com")!
-                let (_, response) = try await URLSession.shared.data(from: url)
-                if let http = response as? HTTPURLResponse, http.statusCode == 200 || http.statusCode == 403 {
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 5
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if response is HTTPURLResponse {
                     networkAccess = .granted
                     logger.info("Network access: granted")
                 } else {
-                    networkAccess = .granted // Any response means network works
+                    networkAccess = .granted
                 }
             } catch {
                 networkAccess = .denied

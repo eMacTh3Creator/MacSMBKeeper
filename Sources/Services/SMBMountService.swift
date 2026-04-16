@@ -73,17 +73,49 @@ enum SMBMountService {
             return // Not an SMB mount, don't try to unmount
         }
 
-        // Try graceful unmount first (no force)
+        // Prefer diskutil over the raw unmount(2) syscall. Raw unmount returns
+        // EPERM (error 1) when the mount wasn't made by the current process,
+        // even when the user has Full Disk Access. diskutil talks to diskarbitrationd,
+        // which performs the unmount on behalf of any user who owns the mount.
+        if runDiskutilUnmount(path: path, force: false) {
+            return
+        }
+
+        // Fall back to diskutil --force, which handles in-use files.
+        if runDiskutilUnmount(path: path, force: true) {
+            return
+        }
+
+        // Last resort: raw syscall. This rarely succeeds where diskutil failed,
+        // but preserves previous behavior as a safety net.
         var result = Darwin.unmount(path, 0)
         if result == 0 { return }
-
-        // If busy, try force unmount
         let gracefulError = errno
         result = Darwin.unmount(path, MNT_FORCE)
         if result == 0 { return }
 
-        // Report the original graceful error as it's more informative
         throw MountError.unmountFailed(gracefulError)
+    }
+
+    private static func runDiskutilUnmount(path: String, force: Bool) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/diskutil")
+        var args = ["unmount"]
+        if force { args.append("force") }
+        args.append(path)
+        process.arguments = args
+
+        // Discard output; we only care about the exit code.
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 
     static func isMounted(share: SMBShare) -> Bool {
