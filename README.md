@@ -1,10 +1,19 @@
-# Mac SMB Keeper
+<p align="center">
+  <img src="Resources/icon.png" width="128" height="128" alt="Mac SMB Keeper icon">
+</p>
 
-Native macOS menu bar app that keeps your SMB network shares connected. Designed for headless Macs and always-on setups where dropped SMB mounts cause problems.
+<h1 align="center">Mac SMB Keeper</h1>
 
-![macOS 15+](https://img.shields.io/badge/macOS-15%2B-blue)
-![Swift 6](https://img.shields.io/badge/Swift-6-orange)
-![License: MIT](https://img.shields.io/badge/License-MIT-green)
+<p align="center">
+  Native macOS menu bar app that keeps your SMB network shares connected.<br>
+  Designed for headless Macs and always-on setups where dropped SMB mounts cause problems.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/macOS-15%2B-blue" alt="macOS 15+">
+  <img src="https://img.shields.io/badge/Swift-6-orange" alt="Swift 6">
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="License: MIT">
+</p>
 
 ## Features
 

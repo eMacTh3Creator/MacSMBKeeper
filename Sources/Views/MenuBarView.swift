@@ -3,7 +3,7 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var shareStore: ShareStore
     @ObservedObject var monitor: SMBMonitorService
-    var showMainWindow: () -> Void
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -36,12 +36,8 @@ struct MenuBarView: View {
             }
 
             Button("Open Mac SMB Keeper...") {
+                openWindow(id: "main")
                 NSApp.activate(ignoringOtherApps: true)
-                if let window = NSApp.windows.first(where: { $0.title == "Mac SMB Keeper" }) {
-                    window.makeKeyAndOrderFront(nil)
-                } else {
-                    showMainWindow()
-                }
             }
             .keyboardShortcut("o")
 

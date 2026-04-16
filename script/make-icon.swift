@@ -150,17 +150,33 @@ func generateIcon(size: CGFloat) -> NSImage {
     return image
 }
 
-func savePNG(_ image: NSImage, to path: String) {
-    guard let tiffData = image.tiffRepresentation,
-          let bitmap = NSBitmapImageRep(data: tiffData),
-          let pngData = bitmap.representation(using: .png, properties: [:])
-    else {
+func savePNG(_ image: NSImage, to path: String, pixelSize: Int) {
+    let bitmap = NSBitmapImageRep(
+        bitmapDataPlanes: nil,
+        pixelsWide: pixelSize,
+        pixelsHigh: pixelSize,
+        bitsPerSample: 8,
+        samplesPerPixel: 4,
+        hasAlpha: true,
+        isPlanar: false,
+        colorSpaceName: .deviceRGB,
+        bytesPerRow: 0,
+        bitsPerPixel: 0
+    )!
+    bitmap.size = NSSize(width: pixelSize, height: pixelSize)
+
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+    image.draw(in: NSRect(x: 0, y: 0, width: pixelSize, height: pixelSize))
+    NSGraphicsContext.restoreGraphicsState()
+
+    guard let pngData = bitmap.representation(using: .png, properties: [:]) else {
         print("Failed to generate PNG for \(path)")
         return
     }
     do {
         try pngData.write(to: URL(fileURLWithPath: path))
-        print("Saved \(path)")
+        print("Saved \(path) (\(pixelSize)x\(pixelSize)px)")
     } catch {
         print("Error saving \(path): \(error)")
     }
@@ -184,10 +200,12 @@ let scriptDir = CommandLine.arguments[0]
 let projectDir = URL(fileURLWithPath: scriptDir).deletingLastPathComponent().deletingLastPathComponent()
 let iconDir = projectDir.appendingPathComponent("Resources/Assets.xcassets/AppIcon.appiconset")
 
+// Generate at 1024 and scale down for each size
+let masterIcon = generateIcon(size: 1024)
+
 for entry in sizes {
-    let image = generateIcon(size: CGFloat(entry.size))
     let path = iconDir.appendingPathComponent("\(entry.name).png").path
-    savePNG(image, to: path)
+    savePNG(masterIcon, to: path, pixelSize: entry.size)
 }
 
 // Update Contents.json

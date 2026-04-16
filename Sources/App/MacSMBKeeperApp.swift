@@ -4,14 +4,12 @@ import SwiftUI
 struct MacSMBKeeperApp: App {
     @StateObject private var shareStore = ShareStore()
     @StateObject private var monitor = SMBMonitorService()
-    @State private var showingMainWindow = false
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarView(
                 shareStore: shareStore,
-                monitor: monitor,
-                showMainWindow: { showingMainWindow = true }
+                monitor: monitor
             )
         } label: {
             Image(systemName: menuBarIcon)
