@@ -14,7 +14,7 @@ final class AppSettings: ObservableObject {
     @Published var updateAvailable: Bool = false
     @Published var latestVersion: String = ""
 
-    static let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1.0"
+    static let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.2.0"
     static let githubRepo = "eMacTh3Creator/MacSMBKeeper"
 
     init() {
