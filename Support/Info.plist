@@ -32,5 +32,9 @@
     <string>AppIcon</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.utilities</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Mac SMB Keeper needs local network access to discover and connect to SMB file shares on your network.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Mac SMB Keeper uses Apple Events to open System Settings when configuring permissions.</string>
 </dict>
 </plist>

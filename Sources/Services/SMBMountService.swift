@@ -7,6 +7,14 @@ enum SMBMountService {
             throw MountError.invalidURL
         }
 
+        // Check if already mounted at expected path
+        let expectedPath = URL(fileURLWithPath: share.mountPoint)
+            .appendingPathComponent(share.shareName)
+            .path
+        if isMountedAtPath(expectedPath, scheme: "smbfs") {
+            return // Already mounted, nothing to do
+        }
+
         let mountDir = URL(fileURLWithPath: share.mountPoint, isDirectory: true)
 
         // Ensure mount directory exists
@@ -14,17 +22,21 @@ enum SMBMountService {
             try FileManager.default.createDirectory(at: mountDir, withIntermediateDirectories: true)
         }
 
-        // Build open options
-        let openOptions = NSMutableDictionary()
-        if !share.username.isEmpty {
-            openOptions[kNAUIOptionKey] = kNAUIOptionNoUI
+        // If something non-SMB exists at the expected mount path, remove it if it's an empty dir
+        if FileManager.default.fileExists(atPath: expectedPath) {
+            let contents = try? FileManager.default.contentsOfDirectory(atPath: expectedPath)
+            if let contents, contents.isEmpty {
+                try? FileManager.default.removeItem(atPath: expectedPath)
+            }
         }
+
+        // Build open options — suppress auth UI, we provide credentials
+        let openOptions = NSMutableDictionary()
+        openOptions[kNAUIOptionKey] = kNAUIOptionNoUI
 
         let mountOptions = NSMutableDictionary()
         mountOptions[kNetFSSoftMountKey] = true
-        if !share.username.isEmpty {
-            mountOptions[kNetFSMountAtMountDirKey] = true
-        }
+        mountOptions[kNetFSMountAtMountDirKey] = true
 
         let username: String? = share.username.isEmpty ? nil : share.username
 
@@ -56,25 +68,38 @@ enum SMBMountService {
             return // Already unmounted
         }
 
-        let result = Darwin.unmount(path, MNT_FORCE)
-        if result != 0 {
-            throw MountError.unmountFailed(errno)
+        // Verify it's actually a mount point before trying to unmount
+        guard isMountedAtPath(path, scheme: "smbfs") else {
+            return // Not an SMB mount, don't try to unmount
         }
+
+        // Try graceful unmount first (no force)
+        var result = Darwin.unmount(path, 0)
+        if result == 0 { return }
+
+        // If busy, try force unmount
+        let gracefulError = errno
+        result = Darwin.unmount(path, MNT_FORCE)
+        if result == 0 { return }
+
+        // Report the original graceful error as it's more informative
+        throw MountError.unmountFailed(gracefulError)
     }
 
     static func isMounted(share: SMBShare) -> Bool {
         let expectedPath = URL(fileURLWithPath: share.mountPoint)
             .appendingPathComponent(share.shareName)
             .path
+        return isMountedAtPath(expectedPath, scheme: "smbfs")
+    }
 
-        // Check if the path exists and is a mount point
-        guard FileManager.default.fileExists(atPath: expectedPath) else {
+    private static func isMountedAtPath(_ path: String, scheme: String) -> Bool {
+        guard FileManager.default.fileExists(atPath: path) else {
             return false
         }
 
-        // Verify it's actually an SMB mount by checking statfs
         var stat = statfs()
-        guard statfs(expectedPath, &stat) == 0 else {
+        guard statfs(path, &stat) == 0 else {
             return false
         }
 
@@ -84,7 +109,7 @@ enum SMBMountService {
             }
         }
 
-        return fsType == "smbfs"
+        return fsType == scheme
     }
 }
 
@@ -98,9 +123,32 @@ enum MountError: LocalizedError {
         case .invalidURL:
             "Invalid SMB URL"
         case .mountFailed(let code):
-            "Mount failed with error code \(code)"
+            "Mount failed (error \(code)): \(Self.describeMountError(code))"
         case .unmountFailed(let code):
-            "Unmount failed with error code \(code)"
+            "Unmount failed (error \(code)): \(Self.describeUnmountError(code))"
+        }
+    }
+
+    private static func describeMountError(_ code: Int32) -> String {
+        switch code {
+        case 2: return "Mount point not found (ENOENT)"
+        case 13: return "Permission denied — check credentials (EACCES)"
+        case 17: return "Already mounted or path in use (EEXIST)"
+        case 22: return "Invalid SMB URL or argument (EINVAL)"
+        case 51: return "Network unreachable (ENETUNREACH)"
+        case 60: return "Connection timed out (ETIMEDOUT)"
+        case 61: return "Connection refused — check SMB is enabled (ECONNREFUSED)"
+        case 64: return "Host is down (EHOSTDOWN)"
+        case 65: return "No route to host (EHOSTUNREACH)"
+        default: return String(cString: strerror(code))
+        }
+    }
+
+    private static func describeUnmountError(_ code: Int32) -> String {
+        switch code {
+        case 1: return "Operation not permitted — files may be in use (EPERM)"
+        case 16: return "Device busy — close open files first (EBUSY)"
+        default: return String(cString: strerror(code))
         }
     }
 }
