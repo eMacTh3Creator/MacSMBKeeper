@@ -7,30 +7,45 @@ enum SMBMountService {
             throw MountError.invalidURL
         }
 
-        // Check if already mounted at expected path
+        // 1. Already mounted at the expected path? Done.
         let expectedPath = URL(fileURLWithPath: share.mountPoint)
             .appendingPathComponent(share.shareName)
             .path
         if isMountedAtPath(expectedPath, scheme: "smbfs") {
-            return // Already mounted, nothing to do
+            return
         }
 
-        let mountDir = URL(fileURLWithPath: share.mountPoint, isDirectory: true)
+        // 2. Already mounted at a DIFFERENT path by Finder / autofs / Bonjour?
+        //    (e.g. /Volumes/CLOUD-1 instead of /Volumes/CLOUD). Treat as done.
+        if existingSMBMountPath(forShare: share.shareName) != nil {
+            return
+        }
 
-        // Ensure mount directory exists
+        // 3. Ensure the parent directory exists.
+        let parentDir = URL(fileURLWithPath: share.mountPoint, isDirectory: true)
         if !FileManager.default.fileExists(atPath: share.mountPoint) {
-            try FileManager.default.createDirectory(at: mountDir, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: parentDir, withIntermediateDirectories: true)
         }
 
-        // If something non-SMB exists at the expected mount path, remove it if it's an empty dir
-        if FileManager.default.fileExists(atPath: expectedPath) {
-            let contents = try? FileManager.default.contentsOfDirectory(atPath: expectedPath)
-            if let contents, contents.isEmpty {
-                try? FileManager.default.removeItem(atPath: expectedPath)
+        // 4. Clean up a stale placeholder at expectedPath if present.
+        //    0111-mode stubs from a prior mount_smbfs can't be listed with
+        //    contentsOfDirectory, but rmdir(2) works because they're empty.
+        //    If rmdir fails, fall back to a unique path so we don't hit EEXIST.
+        var targetPath = expectedPath
+        if FileManager.default.fileExists(atPath: targetPath),
+           !isMountedAtPath(targetPath, scheme: "smbfs") {
+            if rmdir(targetPath) != 0 {
+                let suffix = String(share.id.uuidString.prefix(8))
+                targetPath = parentDir.appendingPathComponent("\(share.shareName)-\(suffix)").path
             }
         }
 
-        // Build open options — suppress auth UI, we provide credentials
+        // 5. Create the target directory and tell NetFS to mount AT it.
+        try? FileManager.default.createDirectory(
+            at: URL(fileURLWithPath: targetPath, isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
         let openOptions = NSMutableDictionary()
         openOptions[kNAUIOptionKey] = kNAUIOptionNoUI
 
@@ -38,12 +53,13 @@ enum SMBMountService {
         mountOptions[kNetFSSoftMountKey] = true
         mountOptions[kNetFSMountAtMountDirKey] = true
 
+        let mountTarget = URL(fileURLWithPath: targetPath, isDirectory: true)
         let username: String? = share.username.isEmpty ? nil : share.username
 
         return try await withCheckedThrowingContinuation { continuation in
             let rc = NetFSMountURLSync(
                 smbURL as CFURL,
-                mountDir as CFURL,
+                mountTarget as CFURL,
                 username as CFString?,
                 password as CFString?,
                 openOptions,
@@ -57,6 +73,45 @@ enum SMBMountService {
                 continuation.resume(throwing: MountError.mountFailed(rc))
             }
         }
+    }
+
+    /// Scan the kernel mount table for an smbfs mount whose remote share name
+    /// matches `shareName`. Handles the case where Finder/autofs has already
+    /// mounted the same share at a path other than `/Volumes/<shareName>`.
+    private static func existingSMBMountPath(forShare shareName: String) -> String? {
+        var mntsPtr: UnsafeMutablePointer<statfs>?
+        let count = getmntinfo(&mntsPtr, MNT_NOWAIT)
+        guard count > 0, let mnts = mntsPtr else { return nil }
+
+        for i in 0..<Int(count) {
+            var entry = mnts[i]
+
+            let fsType = withUnsafePointer(to: &entry.f_fstypename) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(MFSTYPENAMELEN)) {
+                    String(cString: $0)
+                }
+            }
+            guard fsType == "smbfs" else { continue }
+
+            let fromName = withUnsafePointer(to: &entry.f_mntfromname) {
+                $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) {
+                    String(cString: $0)
+                }
+            }
+            // f_mntfromname looks like "//user@host/SHARE"
+            if let slash = fromName.lastIndex(of: "/") {
+                let remoteShare = String(fromName[fromName.index(after: slash)...])
+                if remoteShare.caseInsensitiveCompare(shareName) == .orderedSame {
+                    let onName = withUnsafePointer(to: &entry.f_mntonname) {
+                        $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) {
+                            String(cString: $0)
+                        }
+                    }
+                    return onName
+                }
+            }
+        }
+        return nil
     }
 
     static func unmount(share: SMBShare) throws {

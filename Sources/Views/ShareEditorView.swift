@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ShareEditorView: View {
     @ObservedObject var shareStore: ShareStore
+    @ObservedObject var monitor: SMBMonitorService
     var editing: SMBShare?
     var prefill: SharePrefill?
     var onDismiss: () -> Void
@@ -88,6 +89,9 @@ struct ShareEditorView: View {
             existing.username = username.trimmingCharacters(in: .whitespaces)
             existing.autoConnect = autoConnect
             shareStore.update(existing, password: password.isEmpty ? nil : password)
+            if !password.isEmpty {
+                monitor.invalidatePasswordCache(for: existing.id)
+            }
         } else {
             let share = SMBShare(
                 name: name.trimmingCharacters(in: .whitespaces),

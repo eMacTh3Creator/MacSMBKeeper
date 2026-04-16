@@ -38,6 +38,10 @@ enum KeychainService: Sendable {
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
+            // Never present UI from this read path. If the ACL doesn't trust
+            // the current binary, we get errSecInteractionNotAllowed instead
+            // of a user-facing prompt every 30 seconds.
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
         ]
 
         var result: AnyObject?

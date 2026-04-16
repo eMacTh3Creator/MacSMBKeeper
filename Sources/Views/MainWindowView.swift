@@ -20,17 +20,17 @@ struct MainWindowView: View {
             detailView
         }
         .sheet(isPresented: $showingAddSheet) {
-            ShareEditorView(shareStore: shareStore) {
+            ShareEditorView(shareStore: shareStore, monitor: monitor) {
                 showingAddSheet = false
             }
         }
         .sheet(item: $editorPrefill) { prefill in
-            ShareEditorView(shareStore: shareStore, prefill: prefill) {
+            ShareEditorView(shareStore: shareStore, monitor: monitor, prefill: prefill) {
                 editorPrefill = nil
             }
         }
         .sheet(item: $editingShare) { share in
-            ShareEditorView(shareStore: shareStore, editing: share) {
+            ShareEditorView(shareStore: shareStore, monitor: monitor, editing: share) {
                 editingShare = nil
             }
         }

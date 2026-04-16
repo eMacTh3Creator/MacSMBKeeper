@@ -13,6 +13,24 @@ final class SMBMonitorService: ObservableObject {
 
     private weak var shareStore: ShareStore?
 
+    /// In-memory password cache so the 30s reconnect loop doesn't hit the
+    /// Keychain (and potentially prompt the user) on every tick. Cleared on
+    /// share removal; refreshed on edit via `invalidatePasswordCache(for:)`.
+    private var passwordCache: [UUID: String] = [:]
+
+    private func password(for share: SMBShare) -> String? {
+        if let cached = passwordCache[share.id] { return cached }
+        if let pw = KeychainService.loadPassword(for: share.id) {
+            passwordCache[share.id] = pw
+            return pw
+        }
+        return nil
+    }
+
+    func invalidatePasswordCache(for id: UUID) {
+        passwordCache.removeValue(forKey: id)
+    }
+
     func start(with store: ShareStore) {
         self.shareStore = store
         monitorTask?.cancel()
@@ -55,7 +73,7 @@ final class SMBMonitorService: ObservableObject {
 
     func connect(share: SMBShare) async {
         statuses[share.id] = .connecting
-        let password = KeychainService.loadPassword(for: share.id)
+        let password = self.password(for: share)
 
         do {
             try await SMBMountService.mount(share: share, password: password)
@@ -126,6 +144,7 @@ final class SMBMonitorService: ObservableObject {
     func forgetShare(id: UUID) {
         pausedShareIDs.remove(id)
         statuses.removeValue(forKey: id)
+        passwordCache.removeValue(forKey: id)
     }
 
     func status(for id: UUID) -> ShareStatus {
