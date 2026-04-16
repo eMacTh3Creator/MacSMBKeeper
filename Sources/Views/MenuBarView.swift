@@ -6,54 +6,53 @@ struct MenuBarView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if shareStore.shares.isEmpty {
-                Text("No shares configured")
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-            } else {
-                ForEach(shareStore.shares) { share in
-                    ShareMenuRow(share: share, status: monitor.status(for: share.id)) {
-                        Task { await monitor.connect(share: share) }
-                    } onDisconnect: {
-                        monitor.disconnect(share: share)
-                    }
+        if shareStore.shares.isEmpty {
+            Text("No shares configured")
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(shareStore.shares) { share in
+                ShareMenuRow(share: share, status: monitor.status(for: share.id)) {
+                    Task { await monitor.connect(share: share) }
+                } onDisconnect: {
+                    monitor.disconnect(share: share)
                 }
             }
 
             Divider()
-                .padding(.vertical, 4)
 
-            if !shareStore.shares.isEmpty {
-                Button("Connect All") {
-                    Task { await monitor.connectAll() }
-                }
-                .keyboardShortcut("c")
-
-                Divider()
-                    .padding(.vertical, 4)
+            Button("Connect All") {
+                Task { await monitor.connectAll() }
             }
-
-            Button("Open Mac SMB Keeper...") {
-                openWindow(id: "main")
-                NSApp.activate(ignoringOtherApps: true)
-            }
-            .keyboardShortcut("o")
-
-            Divider()
-                .padding(.vertical, 4)
-
-            Button("Quit Mac SMB Keeper") {
-                NSApp.terminate(nil)
-            }
-            .keyboardShortcut("q")
+            .keyboardShortcut("k")
         }
-        .padding(.vertical, 4)
-        .task {
-            monitor.start(with: shareStore)
-            await monitor.connectAll()
+
+        Divider()
+
+        Button("Open Mac SMB Keeper...") {
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
         }
+        .keyboardShortcut("o")
+
+        SettingsLink {
+            Text("Settings...")
+        }
+        .keyboardShortcut(",")
+
+        Divider()
+
+        Button("Quit Mac SMB Keeper") {
+            NSApp.terminate(nil)
+        }
+        .keyboardShortcut("q")
+
+        // Start monitoring on first appearance
+        Text("")
+            .hidden()
+            .task {
+                monitor.start(with: shareStore)
+                await monitor.connectAll()
+            }
     }
 }
 
@@ -74,26 +73,16 @@ struct ShareMenuRow: View {
             HStack(spacing: 8) {
                 Image(systemName: statusIcon)
                     .foregroundStyle(statusColor)
-                    .frame(width: 12)
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(share.name.isEmpty ? share.shareName : share.name)
-                        .font(.system(size: 13))
-                    Text(share.displayAddress)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.secondary)
-                }
+                Text(share.name.isEmpty ? share.shareName : share.name)
 
                 Spacer()
 
                 Text(status.label)
-                    .font(.system(size: 10))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 4)
         }
-        .buttonStyle(.plain)
     }
 
     private var statusIcon: String {
