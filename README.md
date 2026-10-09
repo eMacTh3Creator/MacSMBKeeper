@@ -5,8 +5,8 @@
 <h1 align="center">Mac SMB Keeper</h1>
 
 <p align="center">
-  Native macOS menu bar app that keeps your SMB network shares connected.<br>
-  Designed for headless Macs and always-on setups where dropped SMB mounts cause problems.
+  A Mac menu bar app that checks your SMB shares and reconnects them when they drop.<br>
+  Useful for Macs that stay running unattended.
 </p>
 
 <p align="center">
@@ -22,7 +22,7 @@
 - **Launch at login** -- optionally start at boot for unattended/headless Macs (Settings > General)
 - **Menu bar interface** -- lives in the menu bar with per-share status indicators (green/red/orange)
 - **Keychain credentials** -- passwords stored securely in the macOS Keychain
-- **Native mounting** -- uses the NetFS framework for proper macOS SMB mounts (same as Finder)
+- **Native mounting** -- uses the NetFS framework to mount SMB shares, as Finder does
 - **Drag and drop** -- drag `smb://` URLs into the window to quickly add shares
 - **Multi-select** -- Cmd/Shift-click to select multiple shares for bulk connect, disconnect, or delete
 - **Update checker** -- checks GitHub releases for new versions (Settings > Updates)
@@ -32,7 +32,7 @@
 
 ### Download
 
-Grab the latest `.zip` from [Releases](https://github.com/eMacTh3Creator/MacSMBKeeper/releases), unzip, and drag **Mac SMB Keeper.app** to `/Applications`.
+Download the latest `.zip` from [Releases](https://github.com/eMacTh3Creator/MacSMBKeeper/releases), unzip, and drag **Mac SMB Keeper.app** to `/Applications`.
 
 ### Build from source
 
